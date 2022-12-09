@@ -8,8 +8,10 @@ MY_SCHEDULE_DATE = 2024-01-01
 MIN_SCHEDULE_DAYS = 2
 ; Spanish - Colombia
 COUNTRY_CODE = es-co
-; Bogotá
+; Bogotá consulate
 FACILITY_ID = 25
+; Bogotá CAS
+FACILITY_ID_CAS = 26
 
 [CHROMEDRIVER]
 ; Details for the script to control Chrome
