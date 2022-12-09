@@ -31,6 +31,7 @@ MY_SCHEDULE_DATE = config['USVISA']['MY_SCHEDULE_DATE']
 MIN_SCHEDULE_DAYS = int(config['USVISA']['MIN_SCHEDULE_DAYS'])
 COUNTRY_CODE = config['USVISA']['COUNTRY_CODE']
 FACILITY_ID = config['USVISA']['FACILITY_ID']
+FACILITY_ID_CAS = config['USVISA']['FACILITY_ID_CAS']
 GROUP_ID = config['USVISA']['GROUP_ID']
 
 SENDGRID_API_KEY = config['SENDGRID']['SENDGRID_API_KEY']
@@ -56,8 +57,8 @@ RETRY_TIME = 60*20  # wait time between retries: 20 minutes
 EXCEPTION_TIME = 60*45  # wait time when an exception occurs: 45 minutes
 COOLDOWN_TIME = 60*90  # wait time when temporary banned (empty list): 90 minutes
 
-DATE_URL = f"https://ais.usvisa-info.com/{COUNTRY_CODE}/niv/schedule/{SCHEDULE_ID}/appointment/days/{FACILITY_ID}.json?appointments[expedite]=false"
-TIME_URL = f"https://ais.usvisa-info.com/{COUNTRY_CODE}/niv/schedule/{SCHEDULE_ID}/appointment/times/{FACILITY_ID}.json?date=%s&appointments[expedite]=false"
+DATE_URL = f"https://ais.usvisa-info.com/{COUNTRY_CODE}/niv/schedule/{SCHEDULE_ID}/appointment/days/%s.json?appointments[expedite]=false"
+TIME_URL = f"https://ais.usvisa-info.com/{COUNTRY_CODE}/niv/schedule/{SCHEDULE_ID}/appointment/times/%s.json?date=%s&appointments[expedite]=false"
 APPOINTMENT_URL = f"https://ais.usvisa-info.com/{COUNTRY_CODE}/niv/schedule/{SCHEDULE_ID}/appointment"
 GROUP_URL = f"https://ais.usvisa-info.com/{COUNTRY_CODE}/niv/groups/{GROUP_ID}"
 EXIT = False
@@ -174,19 +175,29 @@ def set_current_appoiment_date(load_url):
     MY_SCHEDULE_DATE = date_time_obj.strftime('%Y-%m-%d')
     print(f"Current appoinment date: {MY_SCHEDULE_DATE}")
 
-def get_dates_from_service():
-    driver.get(DATE_URL)
+def get_dates_from_service(facility_id, consulate_date=None, consulate_time=None):
+    date_url = DATE_URL % facility_id
+    #add params if its cas appt
+    if consulate_date is not None:
+        date_url = date_url + f"&consulate_id={FACILITY_ID}&consulate_date={consulate_date}&consulate_time={consulate_time}"
+
+    driver.get(date_url)
     if not is_logged_in():
         login()
-        return get_dates_from_service()
+        return get_dates_from_service(facility_id, consulate_date, consulate_time)
     else:
         content = driver.find_element(By.TAG_NAME, 'pre').text
         date = json.loads(content)
         return date
 
 
-def get_time(date):
-    time_url = TIME_URL % date
+def get_time(facility_id, date, consulate_date=None, consulate_time=None):
+    time_url = TIME_URL % (facility_id, date)
+
+    #add params if its cas appt
+    if consulate_date is not None:
+        time_url = time_url + f"&consulate_id={FACILITY_ID}&consulate_date={consulate_date}&consulate_time={consulate_time}"
+
     driver.get(time_url)
     content = driver.find_element(By.TAG_NAME, 'pre').text
     data = json.loads(content)
@@ -203,11 +214,9 @@ def url_encode_params(params={}):
         else: params_list.append((k, v))
     return urllib.parse.urlencode(params_list)
 
-def step2_reschedule(date):
+def step3_reschedule(date, time, date_cas, time_cas):
     global EXIT
-    print(f"Starting Reschedule ({date})")
-
-    time = get_time(date)
+    print(f"Starting Reschedule ({date} at {time}) and CAS ({date_cas} at {time_cas})")
 
     driver.get(APPOINTMENT_URL)
     new_url = APPOINTMENT_URL
@@ -229,6 +238,10 @@ def step2_reschedule(date):
         url_parts = list(urllib.parse.urlparse(APPOINTMENT_URL))
         url_parts[4] = url_encode_params(params)
         new_url = urllib.parse.urlunparse(url_parts)
+
+        print("all applicants has been selected")
+        print(f"now, lets load the url: {new_url}")
+
         btn = driver.find_element(By.NAME, 'commit')
         btn.click()
         driver.get(new_url)
@@ -242,7 +255,10 @@ def step2_reschedule(date):
         "use_consulate_appointment_capacity": driver.find_element(by=By.NAME, value='use_consulate_appointment_capacity').get_attribute('value'),
         "appointments[consulate_appointment][facility_id]": FACILITY_ID,
         "appointments[consulate_appointment][date]": date,
-        "appointments[consulate_appointment][time]": time
+        "appointments[consulate_appointment][time]": time,
+        "appointments[asc_appointment][facility_id]": FACILITY_ID_CAS,
+        "appointments[asc_appointment][date]": date_cas,
+        "appointments[asc_appointment][time]": time_cas
     }
 
     if len(applicant_ids) > 0:
@@ -254,6 +270,7 @@ def step2_reschedule(date):
         "Cookie": "_yatri_session=" + driver.get_cookie("_yatri_session")["value"]
     }
 
+    print(f"lets post with: {data}")
     r = requests.post(APPOINTMENT_URL, headers=headers, data=data)
 
     set_current_appoiment_date(True)
@@ -324,11 +341,19 @@ def step1_get_dates_if_possible():
     set_current_appoiment_date(True)
     old_appointent_date = MY_SCHEDULE_DATE
 
-    dates = get_dates_from_service()[:5]
+    dates = get_dates_from_service(FACILITY_ID)[:5]
     if not dates:
         return None
     else:
         return dates
+
+def step2_get_dates_for_CAS_if_possible(consulate_date, consulate_time):
+    dates = get_dates_from_service(FACILITY_ID_CAS, consulate_date, consulate_time)[:5]
+    if not dates:
+        return None
+    else:
+        return dates
+
 
 if __name__ == "__main__":
     login()
@@ -343,13 +368,32 @@ if __name__ == "__main__":
             if dates:
                 print_dates(dates)
 
-                date = get_available_date(dates)
+                date_apt = get_available_date(dates)
+
                 print()
-                if date:
-                    print(f"New date: {date}")
-                    step2_reschedule(date)
+                if date_apt:
+                    print(f"New date: {date_apt}")
+                    time_apt = get_time(FACILITY_ID, date_apt)
+
+                    dates_cas = step2_get_dates_for_CAS_if_possible(date_apt, time_apt)
+                    if dates_cas:
+                        #lets get the last date in the list
+                        date_cas = dates_cas[-1].get('date')
+                        time_cas = get_time(FACILITY_ID_CAS, date_cas, date_apt, time_apt)
+
+                        step3_reschedule(date_apt, time_apt, date_cas, time_cas)
+
+                        time.sleep(RETRY_TIME)
+                        retry_count += 1
+
+                    else:
+                        print("NO CAS dates, lets wait")
+                        time.sleep(RETRY_TIME)
+                        retry_count += 1
+
                 else:
                     print("Available dates are later than the booked one")
+                    print(f"waiting {int(RETRY_TIME/60)} mins before try again")
                     time.sleep(RETRY_TIME)
                     retry_count += 1
 
