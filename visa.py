@@ -56,7 +56,13 @@ def MY_CONDITION(new_date):
     min_date = datetime.today() + timedelta(days=MIN_SCHEDULE_DAYS)
     max_date = datetime.strptime(MAX_SCHEDULE_DATE, "%Y-%m-%d")
     result = new_date > min_date and new_date < max_date
-    print(f'and is {new_date} > {min_date} and {new_date} < {max_date} :\t{result}')
+
+    new_date_str = new_date.strftime("%Y-%m-%d")
+    min_date_str = min_date.strftime("%Y-%m-%d")
+    max_date_str = max_date.strftime("%Y-%m-%d")
+    print(f'and is {min_date_str} < {new_date_str} < {max_date_str} :\t{result}')
+    print()
+
     return result
 
 STEP_TIME = 0.5  # time between steps (interactions with forms): 0.5 seconds
@@ -315,7 +321,7 @@ def is_logged_in2():
 def print_dates(dates):
     print("Available dates:")
     for d in dates:
-        print("%s \t business_day: %s" % (d.get('date'), d.get('business_day')))
+        print("%s" % (d.get('date')))
     print()
 
 
@@ -329,7 +335,11 @@ def get_available_date(dates):
         my_date = datetime.strptime(MY_SCHEDULE_DATE, "%Y-%m-%d")
         new_date = datetime.strptime(date, "%Y-%m-%d")
         result = my_date > new_date
-        print(f'Is {my_date} > {new_date}:\t{result}')
+
+        my_date_str = my_date.strftime("%Y-%m-%d")
+        new_date_str = new_date.strftime("%Y-%m-%d")
+        print(f'Is {my_date_str} > {new_date_str}:\t{result}')
+
         return result
 
     print("Checking for an earlier date:")
