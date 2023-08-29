@@ -6,6 +6,7 @@ SCHEDULE_ID = 99999999
 GROUP_ID = 12345678
 MY_SCHEDULE_DATE = 2024-01-01
 MIN_SCHEDULE_DAYS = 2
+MAX_SCHEDULE_DATE = 2023-12-23
 ; Spanish - Colombia
 COUNTRY_CODE = es-co
 ; Bogotá consulate
@@ -27,3 +28,8 @@ PUSH_USER = xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 [SENDGRID]
 ; Get email notifications via https://sendgrid.com/ (optional)
 SENDGRID_API_KEY =
+
+; Account and current appointment info just to consult availability, left it empty if you don't have any
+USERNAME_CONSULT = 
+PASSWORD_CONSULT = 
+SCHEDULE_ID_CONSULT = 

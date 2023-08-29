@@ -24,10 +24,17 @@ from sendgrid.helpers.mail import Mail
 config = configparser.ConfigParser()
 config.read('config.ini')
 
+USERNAME_CONSULT = config['USVISA']['USERNAME_CONSULT']
+PASSWORD_CONSULT = config['USVISA']['PASSWORD_CONSULT']
+SCHEDULE_ID_CONSULT = config['USVISA']['SCHEDULE_ID_CONSULT']
+driver = None
+driver_consult = None
+
 USERNAME = config['USVISA']['USERNAME']
 PASSWORD = config['USVISA']['PASSWORD']
 SCHEDULE_ID = config['USVISA']['SCHEDULE_ID']
 MY_SCHEDULE_DATE = config['USVISA']['MY_SCHEDULE_DATE']
+MAX_SCHEDULE_DATE = config['USVISA']['MAX_SCHEDULE_DATE']
 MIN_SCHEDULE_DAYS = int(config['USVISA']['MIN_SCHEDULE_DAYS'])
 COUNTRY_CODE = config['USVISA']['COUNTRY_CODE']
 FACILITY_ID = config['USVISA']['FACILITY_ID']
@@ -43,28 +50,30 @@ HUB_ADDRESS = config['CHROMEDRIVER']['HUB_ADDRESS']
 
 REGEX_CONTINUE = "//a[contains(text(),'Continuar')]"
 
-
 # check if the available date is later than the current date plus MIN_SCHEDULE_DAYS days (in case you can not assist for an appoinmt in the next day)
 def MY_CONDITION(new_date):
     new_date = datetime.strptime(new_date, "%Y-%m-%d")
     min_date = datetime.today() + timedelta(days=MIN_SCHEDULE_DAYS)
-    result = new_date > min_date
-    print(f'and is {new_date} > {min_date}:\t{result}')
+    max_date = datetime.strptime(MAX_SCHEDULE_DATE, "%Y-%m-%d")
+    result = new_date > min_date and new_date < max_date
+    print(f'and is {new_date} > {min_date} and {new_date} < {max_date} :\t{result}')
     return result
 
 STEP_TIME = 0.5  # time between steps (interactions with forms): 0.5 seconds
-RETRY_TIME = 60*20  # wait time between retries: 20 minutes
-EXCEPTION_TIME = 60*45  # wait time when an exception occurs: 45 minutes
-COOLDOWN_TIME = 60*90  # wait time when temporary banned (empty list): 90 minutes
+RETRY_TIME = 20*60  # wait time between retries: 20 minutes
+EXCEPTION_TIME = 45*60  # wait time when an exception occurs: 45 minutes
+RUN_FOR_TIME = 120*60  # continue running time before cold down: 2 hours, 120 mins
+COOLDOWN_TIME = 90*60  # wait time when temporary banned (empty list): 90 mins
 
-DATE_URL = f"https://ais.usvisa-info.com/{COUNTRY_CODE}/niv/schedule/{SCHEDULE_ID}/appointment/days/%s.json?appointments[expedite]=false"
-TIME_URL = f"https://ais.usvisa-info.com/{COUNTRY_CODE}/niv/schedule/{SCHEDULE_ID}/appointment/times/%s.json?date=%s&appointments[expedite]=false"
+DATE_URL = f"https://ais.usvisa-info.com/{COUNTRY_CODE}/niv/schedule/%s/appointment/days/%s.json?appointments[expedite]=false"
+TIME_URL = f"https://ais.usvisa-info.com/{COUNTRY_CODE}/niv/schedule/%s/appointment/times/%s.json?date=%s&appointments[expedite]=false"
 APPOINTMENT_URL = f"https://ais.usvisa-info.com/{COUNTRY_CODE}/niv/schedule/{SCHEDULE_ID}/appointment"
 GROUP_URL = f"https://ais.usvisa-info.com/{COUNTRY_CODE}/niv/groups/{GROUP_ID}"
 EXIT = False
 
 old_appointent_date = ""
 retry_count = 0
+start_running_date = datetime.today()
 
 def send_notification(msg):
 
@@ -100,16 +109,16 @@ def send_notification(msg):
 
 
 def get_driver():
-    if LOCAL_USE:
-        dr = webdriver.Chrome(service=Service(ChromeDriverManager().install()))
+    return webdriver.Chrome()
+
+def login_where_is_needed():
+    if (USERNAME_CONSULT == USERNAME):
+        login(driver, USERNAME, PASSWORD)
     else:
-        dr = webdriver.Remote(command_executor=HUB_ADDRESS, options=webdriver.ChromeOptions())
-    return dr
+        login(driver_consult, USERNAME_CONSULT, PASSWORD_CONSULT)
+        login(driver, USERNAME, PASSWORD)
 
-driver = get_driver()
-
-
-def login():
+def login(driver=driver, username=USERNAME, password=PASSWORD):
     # Bypass reCAPTCHA
     driver.get(f"https://ais.usvisa-info.com/{COUNTRY_CODE}/niv")
     time.sleep(STEP_TIME)
@@ -118,7 +127,7 @@ def login():
     time.sleep(STEP_TIME)
 
     print("Login start...")
-    href = driver.find_element(By.XPATH, '//*[@id="header"]/nav/div[2]/div[1]/ul/li[3]/a')
+    href = driver.find_element(By.XPATH, '//*[@id="header"]/nav/div[1]/div[1]/div[2]/div[1]/ul/li[3]/a')
     href.click()
     time.sleep(STEP_TIME)
     Wait(driver, 60).until(EC.presence_of_element_located((By.NAME, "commit")))
@@ -128,18 +137,18 @@ def login():
     a.click()
     time.sleep(STEP_TIME)
 
-    do_login_action()
+    do_login_action(driver, username, password)
 
 
-def do_login_action():
+def do_login_action(driver, username, password):
     print("\tinput email")
     user = driver.find_element(By.ID, 'user_email')
-    user.send_keys(USERNAME)
+    user.send_keys(username)
     time.sleep(random.randint(1, 3))
 
     print("\tinput pwd")
     pw = driver.find_element(By.ID, 'user_password')
-    pw.send_keys(PASSWORD)
+    pw.send_keys(password)
     time.sleep(random.randint(1, 3))
 
     print("\tclick privacy")
@@ -176,31 +185,33 @@ def set_current_appoiment_date(load_url):
     print(f"Current appoinment date: {MY_SCHEDULE_DATE}")
 
 def get_dates_from_service(facility_id, consulate_date=None, consulate_time=None):
-    date_url = DATE_URL % facility_id
+    date_url = DATE_URL % (SCHEDULE_ID_CONSULT, facility_id)
     #add params if its cas appt
     if consulate_date is not None:
         date_url = date_url + f"&consulate_id={FACILITY_ID}&consulate_date={consulate_date}&consulate_time={consulate_time}"
 
-    driver.get(date_url)
-    if not is_logged_in():
-        login()
+    session = driver_consult.get_cookie("_yatri_session")["value"]
+    NEW_GET = driver.execute_script("var req = new XMLHttpRequest();req.open('GET', '" + str(date_url) + "', false);req.setRequestHeader('Accept', 'application/json, text/javascript, */*; q=0.01');req.setRequestHeader('X-Requested-With', 'XMLHttpRequest'); req.setRequestHeader('Cookie', '_yatri_session=" + session + "'); req.send(null);return req.responseText;")
+
+    if not is_logged_in2():
+        login_where_is_needed()
         return get_dates_from_service(facility_id, consulate_date, consulate_time)
     else:
-        content = driver.find_element(By.TAG_NAME, 'pre').text
-        date = json.loads(content)
-        return date
+        return json.loads(NEW_GET)
 
 
 def get_time(facility_id, date, consulate_date=None, consulate_time=None):
-    time_url = TIME_URL % (facility_id, date)
+    time_url = TIME_URL % (SCHEDULE_ID_CONSULT, facility_id, date)
 
     #add params if its cas appt
     if consulate_date is not None:
         time_url = time_url + f"&consulate_id={FACILITY_ID}&consulate_date={consulate_date}&consulate_time={consulate_time}"
+    
+    session = driver.get_cookie("_yatri_session")["value"]
 
-    driver.get(time_url)
-    content = driver.find_element(By.TAG_NAME, 'pre').text
+    content = driver.execute_script("var req = new XMLHttpRequest();req.open('GET', '" + str(time_url) + "', false);req.setRequestHeader('Accept', 'application/json, text/javascript, */*; q=0.01');req.setRequestHeader('X-Requested-With', 'XMLHttpRequest'); req.setRequestHeader('Cookie', '_yatri_session=" + session + "'); req.send(null);return req.responseText;")
     data = json.loads(content)
+
     time = data.get("available_times")[-1]
     print(f"Got time successfully! {date} {time}")
     return time
@@ -240,7 +251,6 @@ def step3_reschedule(date, time, date_cas, time_cas):
         new_url = urllib.parse.urlunparse(url_parts)
 
         print("all applicants has been selected")
-        print(f"now, lets load the url: {new_url}")
 
         btn = driver.find_element(By.NAME, 'commit')
         btn.click()
@@ -294,6 +304,13 @@ def is_logged_in():
         return False
     return True
 
+def is_logged_in2():
+    url = driver.current_url
+    if(url == f"https://ais.usvisa-info.com/{COUNTRY_CODE}/niv"):
+        return False
+    if(url == f"https://ais.usvisa-info.com/{COUNTRY_CODE}/niv/users/sign_in"):
+        return False
+    return True
 
 def print_dates(dates):
     print("Available dates:")
@@ -333,19 +350,24 @@ def push_notification(dates):
 def step1_get_dates_if_possible():
     global retry_count
 
-    print()
-    print("------------------")
-    print(datetime.today().strftime("%d %b %Y, %I:%M %p"))
-    print(f"Retry count: {retry_count+1}")
-
-    set_current_appoiment_date(True)
-    old_appointent_date = MY_SCHEDULE_DATE
-
-    dates = get_dates_from_service(FACILITY_ID)[:5]
-    if not dates:
-        return None
+    if not is_logged_in2():
+        login_where_is_needed()
+        return step1_get_dates_if_possible()
     else:
-        return dates
+        print()
+        print("------------------")
+        print(datetime.today().strftime("%d %b %Y, %I:%M:%S %p"))
+        print(f"Retry count: {retry_count+1}")
+
+        set_current_appoiment_date(True)
+        old_appointent_date = MY_SCHEDULE_DATE
+
+
+        dates = get_dates_from_service(FACILITY_ID)[:5]
+        if not dates:
+            return None
+        else:
+            return dates
 
 def step2_get_dates_for_CAS_if_possible(consulate_date, consulate_time):
     dates = get_dates_from_service(FACILITY_ID_CAS, consulate_date, consulate_time)[:5]
@@ -354,9 +376,40 @@ def step2_get_dates_for_CAS_if_possible(consulate_date, consulate_time):
     else:
         return dates
 
+def get_time_to_wait():
+    current_date = datetime.today()
+    current_date_no_secs = current_date.replace(second=0, microsecond=0)
+    
+    current_seconds = time.mktime(current_date_no_secs.timetuple())
+    current_minutes = current_seconds/60
+    
+    minutes_to_wait = (5 - (int(current_minutes) % 5))
+    seconds_to_wait = minutes_to_wait * 60
+    
+    secs_to_remove = current_date - current_date_no_secs
+    secs_to_remove = secs_to_remove.seconds
+
+    seconds_to_wait = seconds_to_wait - secs_to_remove
+
+    seconds_to_wait = seconds_to_wait + random.randint(5, 20) # fire it at o'clock plus X seconds
+
+    return seconds_to_wait
+
 
 if __name__ == "__main__":
-    login()
+    driver = get_driver()
+
+    # check if there is a consult account
+    if USERNAME_CONSULT:
+        driver_consult = get_driver()
+    else:
+        USERNAME_CONSULT = USERNAME
+        PASSWORD_CONSULT = PASSWORD
+        SCHEDULE_ID_CONSULT = SCHEDULE_ID
+        driver_consult = driver
+
+    login_where_is_needed()
+
     set_current_appoiment_date(False)
     old_appointent_date = MY_SCHEDULE_DATE
 
@@ -392,21 +445,32 @@ if __name__ == "__main__":
                         retry_count += 1
 
                 else:
-                    print("Available dates are later than the booked one")
-                    print(f"waiting {int(RETRY_TIME/60)} mins before try again")
-                    time.sleep(RETRY_TIME)
-                    retry_count += 1
+
+                    # lets cool down after trying for X mins, to try to prevent to be blocked
+                    now_date = datetime.today()
+                    if now_date > (start_running_date + RUN_FOR_TIME):
+                        print(f"lets cool down for {COOLDOWN_TIME/60} mins after running for {RUN_FOR_TIME/60} mins")
+                        time.sleep(COOLDOWN_TIME)
+                        start_running_date = datetime.today()
+                        retry_count += 1
+                        login_where_is_needed()
+
+                    else:
+                        time_to_wait = get_time_to_wait()
+                        print("Available dates are later than the booked one")
+                        print(f"waiting {int(time_to_wait/60)} mins before try again")
+                        time.sleep(time_to_wait)
+                        retry_count += 1
 
             else:
-                wait_time = RETRY_TIME
-                if retry_count > 14:
-                    wait_time = COOLDOWN_TIME
+                wait_time = COOLDOWN_TIME
 
                 msg = f"no available date, waiting {int(wait_time/60)} mins before try again"
                 print(msg)
                 #send_notification(msg)
                 time.sleep(wait_time)
                 retry_count += 1
+                login_where_is_needed()
 
             if(EXIT):
                 print("------------------exit")
