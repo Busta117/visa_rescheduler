@@ -68,7 +68,7 @@ def MY_CONDITION(new_date):
 STEP_TIME = 0.5  # time between steps (interactions with forms): 0.5 seconds
 RETRY_TIME = 20*60  # wait time between retries: 20 minutes
 EXCEPTION_TIME = 45*60  # wait time when an exception occurs: 45 minutes
-RUN_FOR_TIME = 120*60  # continue running time before cold down: 2 hours, 120 mins
+RUN_FOR_TIME = 150*60  # continue running time before cold down: 150 mins
 COOLDOWN_TIME = 90*60  # wait time when temporary banned (empty list): 90 mins
 
 DATE_URL = f"https://ais.usvisa-info.com/{COUNTRY_CODE}/niv/schedule/%s/appointment/days/%s.json?appointments[expedite]=false"
@@ -338,7 +338,7 @@ def get_available_date(dates):
 
         my_date_str = my_date.strftime("%Y-%m-%d")
         new_date_str = new_date.strftime("%Y-%m-%d")
-        print(f'Is {my_date_str} > {new_date_str}:\t{result}')
+        print(f'Is {new_date_str} < {my_date_str}:\t{result}')
 
         return result
 
@@ -446,7 +446,8 @@ if __name__ == "__main__":
 
                         step3_reschedule(date_apt, time_apt, date_cas, time_cas)
 
-                        time.sleep(RETRY_TIME)
+                        time_to_wait = get_time_to_wait()
+                        time.sleep(time_to_wait)
                         retry_count += 1
 
                     else:
@@ -458,7 +459,7 @@ if __name__ == "__main__":
 
                     # lets cool down after trying for X mins, to try to prevent to be blocked
                     now_date = datetime.today()
-                    if now_date > (start_running_date + RUN_FOR_TIME):
+                    if now_date > (start_running_date + timedelta(seconds=RUN_FOR_TIME)):
                         print(f"lets cool down for {COOLDOWN_TIME/60} mins after running for {RUN_FOR_TIME/60} mins")
                         time.sleep(COOLDOWN_TIME)
                         start_running_date = datetime.today()
@@ -477,7 +478,7 @@ if __name__ == "__main__":
 
                 msg = f"no available date, waiting {int(wait_time/60)} mins before try again"
                 print(msg)
-                #send_notification(msg)
+                send_notification(msg)
                 time.sleep(wait_time)
                 retry_count += 1
                 login_where_is_needed()
