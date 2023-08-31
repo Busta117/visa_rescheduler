@@ -40,6 +40,7 @@ COUNTRY_CODE = config['USVISA']['COUNTRY_CODE']
 FACILITY_ID = config['USVISA']['FACILITY_ID']
 FACILITY_ID_CAS = config['USVISA']['FACILITY_ID_CAS']
 GROUP_ID = config['USVISA']['GROUP_ID']
+MULTIPLE_APPLICANTS = config['USVISA'].getboolean('MULTIPLE_APPLICANTS')
 
 SENDGRID_API_KEY = config['SENDGRID']['SENDGRID_API_KEY']
 PUSH_TOKEN = config['PUSHOVER']['PUSH_TOKEN']
@@ -80,6 +81,9 @@ EXIT = False
 old_appointent_date = ""
 retry_count = 0
 start_running_date = datetime.today()
+
+applicants_appointment_url = None
+applicants_ids = []
 
 def send_notification(msg):
 
@@ -231,36 +235,69 @@ def url_encode_params(params={}):
         else: params_list.append((k, v))
     return urllib.parse.urlencode(params_list)
 
-def step3_reschedule(date, time, date_cas, time_cas):
-    global EXIT
-    print(f"Starting Reschedule ({date} at {time}) and CAS ({date_cas} at {time_cas})")
+def get_applicants_list_if_needed():
+    if not MULTIPLE_APPLICANTS: 
+        return 
 
     driver.get(APPOINTMENT_URL)
-    new_url = APPOINTMENT_URL
-
     applicants_list = driver.find_elements(By.XPATH, '//input[@id="applicants_"]')
-    applicant_ids = []
+    local_applicants_ids = []
     if len(applicants_list) > 0 :
         print("There are more than 1 applicant, selecting all")
         for applicant in applicants_list :
             app_id = applicant.get_attribute('value')
-            applicant_ids.append(app_id)
+            local_applicants_ids.append(app_id)
 
         params = {
             'utf8': '✓',
-            'applicants[]': applicant_ids,
+            'applicants[]': local_applicants_ids,
             'confirmed_limit_message':1,
             'commit': 'Continuar'
         }
         url_parts = list(urllib.parse.urlparse(APPOINTMENT_URL))
         url_parts[4] = url_encode_params(params)
-        new_url = urllib.parse.urlunparse(url_parts)
+
+        applicants_ids = local_applicants_ids
+        applicants_appointment_url = urllib.parse.urlunparse(url_parts)
 
         print("all applicants has been selected")
 
         btn = driver.find_element(By.NAME, 'commit')
         btn.click()
-        driver.get(new_url)
+        driver.get(applicants_appointment_url)
+
+
+def step3_reschedule(date, time, date_cas, time_cas):
+    global EXIT
+    print(f"Starting Reschedule ({date} at {time}) and CAS ({date_cas} at {time_cas})")
+
+    # this is working but i'm trying to avoid extra time
+    # driver.get(APPOINTMENT_URL)
+    # new_url = APPOINTMENT_URL
+
+    # applicants_list = driver.find_elements(By.XPATH, '//input[@id="applicants_"]')
+    # applicant_ids = []
+    # if len(applicants_list) > 0 :
+    #     print("There are more than 1 applicant, selecting all")
+    #     for applicant in applicants_list :
+    #         app_id = applicant.get_attribute('value')
+    #         applicant_ids.append(app_id)
+
+    #     params = {
+    #         'utf8': '✓',
+    #         'applicants[]': applicant_ids,
+    #         'confirmed_limit_message':1,
+    #         'commit': 'Continuar'
+    #     }
+    #     url_parts = list(urllib.parse.urlparse(APPOINTMENT_URL))
+    #     url_parts[4] = url_encode_params(params)
+    #     new_url = urllib.parse.urlunparse(url_parts)
+
+    #     print("all applicants has been selected")
+
+    #     btn = driver.find_element(By.NAME, 'commit')
+    #     btn.click()
+    #     driver.get(new_url)
 
     utf8 = driver.find_element(by=By.NAME, value='utf8').get_attribute('value')
     authenticity_token = driver.find_element(by=By.NAME, value='authenticity_token').get_attribute('value')
@@ -277,7 +314,12 @@ def step3_reschedule(date, time, date_cas, time_cas):
         "appointments[asc_appointment][time]": time_cas
     }
 
-    if len(applicant_ids) > 0:
+    # this is the new atempt
+    new_url = APPOINTMENT_URL
+    if applicants_appointment_url is not None:
+        new_url = applicants_appointment_url
+
+    if len(applicants_ids) > 0:
         data['applicants[]'] = applicant_ids
 
     headers = {
@@ -286,9 +328,10 @@ def step3_reschedule(date, time, date_cas, time_cas):
         "Cookie": "_yatri_session=" + driver.get_cookie("_yatri_session")["value"]
     }
 
-    print(f"lets post with: {data}")
+    print(f"lets POST with: {data}")
     r = requests.post(APPOINTMENT_URL, headers=headers, data=data)
 
+    # check appointment date to see if it was successfully rescheduled
     set_current_appoiment_date(True)
     my_date = datetime.strptime(MY_SCHEDULE_DATE, "%Y-%m-%d")
     old_date = datetime.strptime(old_appointent_date, "%Y-%m-%d")
@@ -296,11 +339,12 @@ def step3_reschedule(date, time, date_cas, time_cas):
     if my_date < old_date:
         msg = f"Rescheduled Successfully! {date} {time}"
         print(msg)
+        print()
         send_notification(msg)
-        EXIT = True
     else:
         msg = f"Reschedule Failed. {date} {time}"
         print(msg)
+        print()
         send_notification(msg)
 
 
@@ -422,6 +466,8 @@ if __name__ == "__main__":
 
     set_current_appoiment_date(False)
     old_appointent_date = MY_SCHEDULE_DATE
+
+    get_applicants_list_if_needed()
 
     while 1:
         if retry_count > 100:
