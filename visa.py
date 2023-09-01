@@ -190,7 +190,9 @@ def set_current_appoiment_date(load_url):
 
     locale.setlocale(locale.LC_TIME, 'es_ES.UTF-8')
     date_time_obj = datetime.strptime(date_str, '%d %B %Y')
-    MY_SCHEDULE_DATE = date_time_obj.strftime('%Y-%m-%d')
+    intended_date = date_time_obj.strftime('%Y-%m-%d')
+    if date_time_obj > datetime.today():
+        MY_SCHEDULE_DATE = intended_date
     print(f"Current appoinment date: {MY_SCHEDULE_DATE}")
 
 def get_dates_from_service(facility_id, consulate_date=None, consulate_time=None):
