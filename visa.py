@@ -70,7 +70,7 @@ STEP_TIME = 0.5  # time between steps (interactions with forms): 0.5 seconds
 RETRY_TIME = 20*60  # wait time between retries: 20 minutes
 EXCEPTION_TIME = 45*60  # wait time when an exception occurs: 45 minutes
 RUN_FOR_TIME = 150*60  # continue running time before cold down: 150 mins
-COOLDOWN_TIME = 90*60  # wait time when temporary banned (empty list): 90 mins
+COOLDOWN_TIME = 60*60  # wait time when temporary banned (empty list): 90 mins
 
 DATE_URL = f"https://ais.usvisa-info.com/{COUNTRY_CODE}/niv/schedule/%s/appointment/days/%s.json?appointments[expedite]=false"
 TIME_URL = f"https://ais.usvisa-info.com/{COUNTRY_CODE}/niv/schedule/%s/appointment/times/%s.json?date=%s&appointments[expedite]=false"
@@ -82,7 +82,6 @@ old_appointent_date = ""
 retry_count = 0
 start_running_date = datetime.today()
 
-applicants_appointment_url = None
 applicants_ids = []
 
 def send_notification(msg):
@@ -222,9 +221,13 @@ def get_time(facility_id, date, consulate_date=None, consulate_time=None):
     content = driver.execute_script("var req = new XMLHttpRequest();req.open('GET', '" + str(time_url) + "', false);req.setRequestHeader('Accept', 'application/json, text/javascript, */*; q=0.01');req.setRequestHeader('X-Requested-With', 'XMLHttpRequest'); req.setRequestHeader('Cookie', '_yatri_session=" + session + "'); req.send(null);return req.responseText;")
     data = json.loads(content)
 
-    time = data.get("available_times")[-1]
-    print(f"Got time successfully! {date} {time}")
-    return time
+    available_times = data.get("available_times")
+    if len(available_times) > 0 :
+        time = available_times[-1]
+        print(f"Got time successfully! {date} {time}")
+        return time
+    else:
+        return None
 
 def url_encode_params(params={}):
     if not isinstance(params, dict):
@@ -235,69 +238,35 @@ def url_encode_params(params={}):
         else: params_list.append((k, v))
     return urllib.parse.urlencode(params_list)
 
-def get_applicants_list_if_needed():
-    if not MULTIPLE_APPLICANTS: 
-        return 
+def step3_reschedule(date, time, date_cas, time_cas):
+    print(f"Starting Reschedule ({date} at {time}) and CAS ({date_cas} at {time_cas})")
 
     driver.get(APPOINTMENT_URL)
+    new_url = APPOINTMENT_URL
+
     applicants_list = driver.find_elements(By.XPATH, '//input[@id="applicants_"]')
-    local_applicants_ids = []
+    applicant_ids = []
     if len(applicants_list) > 0 :
         print("There are more than 1 applicant, selecting all")
         for applicant in applicants_list :
             app_id = applicant.get_attribute('value')
-            local_applicants_ids.append(app_id)
+            applicant_ids.append(app_id)
 
         params = {
             'utf8': '✓',
-            'applicants[]': local_applicants_ids,
+            'applicants[]': applicant_ids,
             'confirmed_limit_message':1,
             'commit': 'Continuar'
         }
         url_parts = list(urllib.parse.urlparse(APPOINTMENT_URL))
         url_parts[4] = url_encode_params(params)
-
-        applicants_ids = local_applicants_ids
-        applicants_appointment_url = urllib.parse.urlunparse(url_parts)
+        new_url = urllib.parse.urlunparse(url_parts)
 
         print("all applicants has been selected")
 
         btn = driver.find_element(By.NAME, 'commit')
         btn.click()
-        driver.get(applicants_appointment_url)
-
-
-def step3_reschedule(date, time, date_cas, time_cas):
-    global EXIT
-    print(f"Starting Reschedule ({date} at {time}) and CAS ({date_cas} at {time_cas})")
-
-    # this is working but i'm trying to avoid extra time
-    # driver.get(APPOINTMENT_URL)
-    # new_url = APPOINTMENT_URL
-
-    # applicants_list = driver.find_elements(By.XPATH, '//input[@id="applicants_"]')
-    # applicant_ids = []
-    # if len(applicants_list) > 0 :
-    #     print("There are more than 1 applicant, selecting all")
-    #     for applicant in applicants_list :
-    #         app_id = applicant.get_attribute('value')
-    #         applicant_ids.append(app_id)
-
-    #     params = {
-    #         'utf8': '✓',
-    #         'applicants[]': applicant_ids,
-    #         'confirmed_limit_message':1,
-    #         'commit': 'Continuar'
-    #     }
-    #     url_parts = list(urllib.parse.urlparse(APPOINTMENT_URL))
-    #     url_parts[4] = url_encode_params(params)
-    #     new_url = urllib.parse.urlunparse(url_parts)
-
-    #     print("all applicants has been selected")
-
-    #     btn = driver.find_element(By.NAME, 'commit')
-    #     btn.click()
-    #     driver.get(new_url)
+        driver.get(new_url)
 
     utf8 = driver.find_element(by=By.NAME, value='utf8').get_attribute('value')
     authenticity_token = driver.find_element(by=By.NAME, value='authenticity_token').get_attribute('value')
@@ -314,18 +283,20 @@ def step3_reschedule(date, time, date_cas, time_cas):
         "appointments[asc_appointment][time]": time_cas
     }
 
-    # this is the new atempt
-    new_url = APPOINTMENT_URL
-    if applicants_appointment_url is not None:
-        new_url = applicants_appointment_url
-
     if len(applicants_ids) > 0:
         data['applicants[]'] = applicant_ids
 
     headers = {
         "User-Agent": driver.execute_script("return navigator.userAgent;"),
         "Referer": new_url,
-        "Cookie": "_yatri_session=" + driver.get_cookie("_yatri_session")["value"]
+        "Cookie": "_ga=GA1.2.1688957431.1692890249; _gid=GA1.2.713168017.1693405535; _ga_W1JNKHTW0Y=GS1.2.1693533125.12.1.1693533159.0.0.0; _yatri_session=" + driver.get_cookie("_yatri_session")["value"],
+        "Connection" : "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Site": "same-origin",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-User": "?1",
+        "Accept-Language": "en,es-CO;q=0.9,es;q=0.8,en-US;q=0.7"
     }
 
     print(f"lets POST with: {data}")
@@ -453,6 +424,19 @@ def get_time_to_wait():
 if __name__ == "__main__":
     driver = get_driver()
 
+    # # reschedule start at that 2am til 11am (spain time)
+    # current_hour = int(datetime.today().strftime("%H"))
+    # if current_hour > 11:
+    #     current_date = datetime.today()
+    #     next_day_date = current_date + timedelta(days=1)
+    #     next_day_date_no_hour = next_day_date.replace(hour=2, minute=4, second=50, microsecond=0)
+
+    #     wait_time_delta = next_day_date_no_hour - current_date
+
+    #     wait_time = wait_time_delta.total_seconds()
+    #     print(f"lets wait until 2am ({wait_time/60} minutes)")
+    #     time.sleep(wait_time)
+
     # check if there is a consult account
     if USERNAME_CONSULT:
         driver_consult = get_driver()
@@ -483,22 +467,28 @@ if __name__ == "__main__":
                 if date_apt:
                     print(f"New date: {date_apt}")
                     time_apt = get_time(FACILITY_ID, date_apt)
+                    if time_apt:
+                        dates_cas = step2_get_dates_for_CAS_if_possible(date_apt, time_apt)
+                        if dates_cas:
+                            #lets get the last date in the list
+                            date_cas = dates_cas[-1].get('date')
+                            time_cas = get_time(FACILITY_ID_CAS, date_cas, date_apt, time_apt)
 
-                    dates_cas = step2_get_dates_for_CAS_if_possible(date_apt, time_apt)
-                    if dates_cas:
-                        #lets get the last date in the list
-                        date_cas = dates_cas[-1].get('date')
-                        time_cas = get_time(FACILITY_ID_CAS, date_cas, date_apt, time_apt)
+                            step3_reschedule(date_apt, time_apt, date_cas, time_cas)
 
-                        step3_reschedule(date_apt, time_apt, date_cas, time_cas)
+                            time_to_wait = get_time_to_wait()
+                            print(f"waiting {int(time_to_wait/60)} mins before try again")
+                            time.sleep(time_to_wait)
+                            retry_count += 1
 
-                        time_to_wait = get_time_to_wait()
-                        time.sleep(time_to_wait)
-                        retry_count += 1
-
+                        else:
+                            print("NO CAS dates, lets wait")
+                            time.sleep(RETRY_TIME)
+                            retry_count += 1
                     else:
-                        print("NO CAS dates, lets wait")
-                        time.sleep(RETRY_TIME)
+                        time_to_wait = get_time_to_wait()
+                        print(f"NO time for that date, waiting {int(time_to_wait/60)} mins before try again")
+                        time.sleep(time_to_wait)
                         retry_count += 1
 
                 else:
