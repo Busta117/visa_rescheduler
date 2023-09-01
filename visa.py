@@ -299,6 +299,27 @@ def step3_reschedule(date, time, date_cas, time_cas):
         "Accept-Language": "en,es-CO;q=0.9,es;q=0.8,en-US;q=0.7"
     }
 
+    return (APPOINTMENT_URL, headers, data)
+    # print(f"lets POST with: {data}")
+    # r = requests.post(APPOINTMENT_URL, headers=headers, data=data)
+
+    # # check appointment date to see if it was successfully rescheduled
+    # set_current_appoiment_date(True)
+    # my_date = datetime.strptime(MY_SCHEDULE_DATE, "%Y-%m-%d")
+    # old_date = datetime.strptime(old_appointent_date, "%Y-%m-%d")
+
+    # if my_date < old_date:
+    #     msg = f"Rescheduled Successfully! {date} {time}"
+    #     print(msg)
+    #     print()
+    #     send_notification(msg)
+    # else:
+    #     msg = f"Reschedule Failed. {date} {time}"
+    #     print(msg)
+    #     print()
+    #     send_notification(msg)
+
+def step4_perform_reschedule_post(url, headers, data):
     print(f"lets POST with: {data}")
     r = requests.post(APPOINTMENT_URL, headers=headers, data=data)
 
@@ -317,7 +338,6 @@ def step3_reschedule(date, time, date_cas, time_cas):
         print(msg)
         print()
         send_notification(msg)
-
 
 def is_logged_in():
     content = driver.page_source
@@ -451,8 +471,6 @@ if __name__ == "__main__":
     set_current_appoiment_date(False)
     old_appointent_date = MY_SCHEDULE_DATE
 
-    get_applicants_list_if_needed()
-
     while 1:
         if retry_count > 100:
             break
@@ -474,7 +492,9 @@ if __name__ == "__main__":
                             date_cas = dates_cas[-1].get('date')
                             time_cas = get_time(FACILITY_ID_CAS, date_cas, date_apt, time_apt)
 
-                            step3_reschedule(date_apt, time_apt, date_cas, time_cas)
+                            post_url, post_headers, post_data = step3_reschedule(date_apt, time_apt, date_cas, time_cas)
+                            time.sleep(1) # wait a bit before perform POST
+                            step4_perform_reschedule_post(post_url, post_headers, post_data)
 
                             time_to_wait = get_time_to_wait()
                             print(f"waiting {int(time_to_wait/60)} mins before try again")
