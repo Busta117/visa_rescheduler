@@ -181,9 +181,21 @@ def set_current_appoiment_date(load_url):
         Wait(driver, 60).until(EC.presence_of_element_located((By.CLASS_NAME, 'card')))
 
     try:
-        app = driver.find_element(By.CLASS_NAME, 'consular-appt')
+        card = driver.find_elements(By.CLASS_NAME, 'card')[0] 
+        try: 
+            app = card.find_element(By.CLASS_NAME, 'consular-appt')
+        except:
+            try:
+                app = card.find_element(By.CLASS_NAME, 'asc-appt')
+            except:
+                print(f"Current appoinment date: {MY_SCHEDULE_DATE}")
+                return
+        
+        # app = driver.find_elements(By.CLASS_NAME, 'consular-appt')[0]
     except:
-        app = driver.find_element(By.CLASS_NAME, 'asc-appt')
+        print(f"Current appoinment date: {MY_SCHEDULE_DATE}")
+        return
+        # app = driver.find_elements(By.CLASS_NAME, 'asc-appt')[0]
 
     date_list = app.text.split(": ")[1].split(", ")[0 : 2]
     date_str = " ".join(date_list)
@@ -331,12 +343,12 @@ def step4_perform_reschedule_post(url, headers, data):
     old_date = datetime.strptime(old_appointent_date, "%Y-%m-%d")
 
     if my_date < old_date:
-        msg = f"Rescheduled Successfully! {date} {time}"
+        msg = f"Rescheduled Successfully!"
         print(msg)
         print()
         send_notification(msg)
     else:
-        msg = f"Reschedule Failed. {date} {time}"
+        msg = f"Reschedule Failed."
         print(msg)
         print()
         send_notification(msg)

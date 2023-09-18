@@ -15,6 +15,12 @@ FACILITY_ID = 25
 ; Bogotá CAS
 FACILITY_ID_CAS = 26
 
+; Account and current appointment info just to consult availability, left it empty if you don't have any
+; don't use it, it doesn't work anymore
+USERNAME_CONSULT = 
+PASSWORD_CONSULT = 
+SCHEDULE_ID_CONSULT = 
+
 [CHROMEDRIVER]
 ; Details for the script to control Chrome
 LOCAL_USE = True
@@ -29,9 +35,3 @@ PUSH_USER = xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 [SENDGRID]
 ; Get email notifications via https://sendgrid.com/ (optional)
 SENDGRID_API_KEY =
-
-; Account and current appointment info just to consult availability, left it empty if you don't have any
-: don't use it, it doesn't work anymore
-USERNAME_CONSULT = 
-PASSWORD_CONSULT = 
-SCHEDULE_ID_CONSULT = 
